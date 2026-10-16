@@ -11,6 +11,7 @@
     margin: 0; padding: 24px;
     font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     background: #0d1117; color: #e6edf3; font-size: 14px;
+    max-width: 1200px; margin: 0 auto;
   }
   h1 { font-size: 20px; margin: 0 0 4px; }
   .sub { color: #8b949e; margin-bottom: 24px; }
@@ -33,6 +34,24 @@
   button:hover { background: #30363d; }
   button#geoBtn:hover { background: #388bfd; }
   #geoResult { color: #3fb950; }
+  .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .maprow { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+  .mapmap { flex: 1 1 480px; min-width: 300px; }
+  .geocol { flex: 1 1 320px; min-width: 260px; }
+  table#wow { margin-top: 28px; }
+  @media (max-width: 720px) {
+    body { padding: 12px; font-size: 13px; }
+    h1 { font-size: 17px; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr { border-bottom: 1px solid #21262d; padding: 6px 0; margin: 0; }
+    td { padding: 1px 0; word-break: break-all; }
+    td.k { white-space: normal; width: auto; color: #58a6ff; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+    button { width: 100%; margin: 4px 0; }
+    .toolbar { flex-direction: column; align-items: stretch; gap: 6px; }
+    .maprow { flex-direction: column; }
+    .mapmap, .geocol { flex: 1 1 auto; min-width: 0; width: 100%; }
+    #mapFrame { height: 260px !important; }
+  }
 </style>
 </head>
 <body>
@@ -40,16 +59,16 @@
 <h1>Co ta strona potrafi odczytać o Tobie — bez pytania o pozwolenie</h1>
 
 <h2>Mapa lokalizacji</h2>
-<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+<div class="toolbar">
   <button id="geoBtn" style="margin:0; background:#1f6feb; border-color:#388bfd; font-weight:bold;">📍 Podaj moje dokładne położenie (prosi o zgodę) — opcjonalnie</button>
   <span id="geoResult"></span>
 </div>
-<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;">
-  <div style="flex:1 1 480px; min-width:300px;">
+<div class="maprow">
+  <div class="mapmap">
     <iframe id="mapFrame" title="mapa lokalizacji" style="width:100%; height:360px; border:1px solid #30363d; border-radius:6px; background:#161b22;"></iframe>
     <div class="dim" id="mapHint" style="padding-top:6px;">Mapa jest pusta do czasu lokalizacji. Osadzona mapa OpenStreetMap.</div>
   </div>
-  <div style="flex:1 1 320px; min-width:260px;">
+  <div class="geocol">
     <table id="geo"></table>
   </div>
 </div>
@@ -75,8 +94,6 @@
 <h2>Urządzenia multimedialne i głosy</h2>
 <table id="media"></table>
 
-<br>
-<br>
 <table id="wow"></table>
 
 <canvas id="cv" width="240" height="60" style="display:none"></canvas>
