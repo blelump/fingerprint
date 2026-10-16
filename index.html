@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Co Twoja przeglądarka o Tobie zdradza</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: #0d1117; color: #e6edf3; font-size: 14px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .sub { color: #8b949e; margin-bottom: 24px; }
+  h2 {
+    font-size: 13px; text-transform: uppercase; letter-spacing: .08em;
+    color: #58a6ff; border-bottom: 1px solid #21262d; padding-bottom: 6px;
+    margin: 28px 0 10px;
+  }
+  table { border-collapse: collapse; width: 100%; }
+  td { padding: 4px 12px 4px 0; vertical-align: top; word-break: break-all; }
+  td.k { color: #8b949e; white-space: nowrap; width: 1%; }
+  .warn { color: #f0883e; }
+  .ok { color: #3fb950; }
+  .dim { color: #484f58; }
+  button {
+    background: #21262d; color: #e6edf3; border: 1px solid #30363d;
+    border-radius: 6px; padding: 8px 14px; font: inherit; cursor: pointer;
+    margin: 6px 8px 6px 0;
+  }
+  button:hover { background: #30363d; }
+  #fingerprint { font-size: 15px; color: #f0883e; word-break: break-all; }
+  #geoResult { color: #3fb950; }
+</style>
+</head>
+<body>
+
+<h1>Co ta strona potrafi odczytać o Tobie — bez pytania o pozwolenie</h1>
+<div class="sub">Wszystko poniżej zostało zebrane zwykłym JavaScriptem w chwili załadowania strony. Działa w Chrome i Safari.</div>
+
+<div><span class="dim">Odcisk palca (fingerprint):</span> <span id="fingerprint">obliczanie…</span></div>
+<button id="copyBtn">⧉ Skopiuj wszystko jako JSON</button>
+<button id="ipBtn">🌐 Zlokalizuj po IP (przybliżenie, bez zgody)</button>
+<button id="geoBtn">📍 Podaj moje dokładne położenie (prosi o zgodę)</button>
+<span id="geoResult"></span>
+
+<h2>Mapa lokalizacji</h2>
+<div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;">
+  <div style="flex:1 1 480px; min-width:300px;">
+    <iframe id="mapFrame" title="mapa lokalizacji" style="width:100%; height:360px; border:1px solid #30363d; border-radius:6px; background:#161b22;"></iframe>
+    <div class="dim" id="mapHint" style="padding-top:6px;">Mapa jest pusta do czasu lokalizacji. Osadzona mapa OpenStreetMap.</div>
+  </div>
+  <div style="flex:1 1 320px; min-width:260px;">
+    <table id="geo"></table>
+  </div>
+</div>
+
+<h2>Tożsamość przeglądarki</h2>
+<table id="identity"></table>
+
+<h2>Sprzęt</h2>
+<table id="hardware"></table>
+
+<h2>Ekran</h2>
+<table id="display"></table>
+
+<h2>Język i czas (wskazują region)</h2>
+<table id="locale"></table>
+
+<h2>Odcisk renderowania</h2>
+<table id="rendering"></table>
+
+<h2>Wykryte czcionki (zainstalowane fonty zdradzają system)</h2>
+<table id="fonts"></table>
+
+<h2>Urządzenia multimedialne i głosy</h2>
+<table id="media"></table>
+
+<canvas id="cv" width="240" height="60" style="display:none"></canvas>
+
+<script>
+"use strict";
+const data = {};
+
+/* ---------- pomocnicze ---------- */
+const $id = (t) => document.getElementById(t);
+function fill(tableId, obj) {
+  const tb = $id(tableId).createTBody();
+  for (const [k, v] of Object.entries(obj)) {
+    const tr = tb.insertRow();
+    tr.insertCell().className = "k";
+    tr.cells[0].textContent = k;
+    tr.insertCell().textContent = String(v);
+    if (String(v).startsWith("❌")) tr.cells[1].className = "warn";
+    data[tableId + "." + k] = String(v);
+  }
+}
+const safe = (fn, fallback = "brak") => { try { const v = fn(); return v === undefined ? fallback : v; } catch (e) { return fallback + " (" + e.name + ")"; } };
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+/* ---------- tożsamość przeglądarki ---------- */
+const nav = navigator;
+fill("identity", {
+  "userAgent": nav.userAgent,
+  "platform": safe(() => nav.platform),
+  "języki (languages)": nav.languages ? nav.languages.join(", ") : nav.language,
+  "język (language)": nav.language,
+  "wtyczki": nav.plugins.length ? [...nav.plugins].map(p => p.name).join(", ") : "0 (puste — typowe)",
+});
+
+/* ---------- sprzęt ---------- */
+fill("hardware", {
+  "rdzenie CPU (hardwareConcurrency)": safe(() => nav.hardwareConcurrency),
+  "pamięć RAM (deviceMemory)": safe(() => nav.deviceMemory + " GB (tylko Chrome — Safari: ❌ brak)"),
+  "bateria": "battery" in nav || "getBattery" in nav ? safe(() => "dostępna (Chrome)") : "❌ brak Battery API (Safari)",
+});
+
+/* ---------- ekran ---------- */
+fill("display", {
+  "ekran": screen.width + " × " + screen.height,
+  "dostępne (bez pasków)": screen.availWidth + " × " + screen.availHeight,
+  "głębia kolorów": screen.colorDepth + " / " + screen.pixelDepth,
+  "devicePixelRatio": window.devicePixelRatio,
+  "okno wewnętrzne": innerWidth + " × " + innerHeight,
+  "okno zewnętrzne": safe(() => outerWidth + " × " + outerHeight),
+  "pozycja ekranu": safe(() => (screen.availLeft ?? "brak") + "," + (screen.availTop ?? "brak"), "brak"),
+  "orientacja": safe(() => (screen.orientation?.type ?? "brak"), "brak"),
+  "paleta kolorów": safe(() => matchMedia("(color-gamut: p3)").matches ? "P3 (szeroka)" : matchMedia("(color-gamut: srgb)").matches ? "sRGB" : "nieznana"),
+  "zakres dynamiki": safe(() => matchMedia("(dynamic-range: high)").matches ? "HDR" : "SDR"),
+});
+
+/* ---------- język i czas ---------- */
+fill("locale", {
+  "strefa czasowa (precyzyjny region!)": safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
+  "przesunięcie strefy": "UTC-" + (-new Date().getTimezoneOffset() / 60),
+  "ustawienia regionalne": safe(() => Intl.DateTimeFormat().resolvedOptions().locale),
+  "format daty": safe(() => new Intl.DateTimeFormat().format(new Date())),
+});
+
+/* ---------- odcisk renderowania ---------- */
+const fpParts = {};
+
+// canvas
+const cv = $id("cv"), ctx = cv.getContext("2d");
+ctx.textBaseline = "alphabetic";
+ctx.fillStyle = "#f60"; ctx.fillRect(122, 1, 62, 20);
+ctx.fillStyle = "#069"; ctx.font = "16px 'Arial'";
+ctx.fillText("Fingerprint 🕷 0.9", 2, 16);
+ctx.fillStyle = "rgba(102,204,0,0.7)"; ctx.font = "18px 'Times'";
+ctx.fillText("Fingerprint 🕷 0.9", 4, 32);
+ctx.shadowBlur = 4; ctx.shadowColor = "#f00"; ctx.strokeRect(0, 0, 50, 50);
+fpParts.canvas = cv.toDataURL();
+
+// webgl
+let glInfo = "niedostępny";
+{
+  const gl = document.createElement("canvas").getContext("webgl") || document.createElement("canvas").getContext("experimental-webgl");
+  if (gl) {
+    const ext = gl.getExtension("WEBGL_debug_renderer_info");
+    const vendor = ext ? gl.getParameter(ext.UNMASKED_VENDOR_WEBGL) : gl.getParameter(gl.VENDOR);
+    const renderer = ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER);
+    const gl2 = document.createElement("canvas").getContext("webgl2");
+    fpParts.webgl = vendor + "~" + renderer + "~" + gl.getSupportedExtensions().length + "~" + (gl2 ? "gl2" : "gl1");
+    glInfo = { vendor, renderer, "maxTextureSize": gl.getParameter(gl.MAX_TEXTURE_SIZE), "extensions": gl.getSupportedExtensions().length, "webgl2": !!gl2 };
+  }
+}
+
+// audio
+async function audioFp() {
+  try {
+    const octx = new OfflineAudioContext(1, 4410, 44100);
+    const osc = octx.createOscillator(); osc.type = "triangle";
+    const comp = octx.createDynamicsCompressor();
+    osc.connect(comp); comp.connect(octx.destination); osc.start(0);
+    const buf = await octx.startRendering();
+    let sum = 0; for (let i = 3800; i < 4300; i++) sum += Math.abs(buf.getChannelData(0)[i]);
+    return sum;
+  } catch (e) { return "niedostępny"; }
+}
+
+// czcionki
+function detectFonts() {
+  const base = ["monospace", "sans-serif", "serif"];
+  const test = "mmmmmmmmmmlli Ww@#0123";
+  const span = document.createElement("span");
+  span.style.cssText = "position:absolute;left:-9999px;font-size:72px;white-space:nowrap";
+  span.textContent = test;
+  document.body.appendChild(span);
+  const w = {};
+  for (const b of base) { span.style.fontFamily = b; w[b] = span.offsetWidth; }
+  const found = [];
+  const candidates = ["Arial","Helvetica","Verdana","Tahoma","Trebuchet MS","Times New Roman","Georgia","Garamond","Courier New","Comic Sans MS","Impact","Segoe UI","Calibri","Consolas","Cambria","Candara","Microsoft YaHei","SimSun","SF Pro","Helvetica Neue","Menlo","Monaco","Optima","Palatino","Zapfino","Avenir","Futura","Roboto","Ubuntu","DejaVu Sans","Liberation Sans","FreeSans","Noto Sans","Droid Sans"];
+  for (const f of candidates) {
+    // font jest "zainstalowany", jeśli tekst renderuje się szerszy w dowolnym foncie podstawowym
+    const hit = base.some(b => { span.style.fontFamily = `'${f}',${b}`; return span.offsetWidth !== w[b]; });
+    if (hit) found.push(f);
+  }
+  span.remove();
+  return found;
+}
+
+/* ---------- wypełnienie sekcji renderowania po częściach asynchronicznych ---------- */
+(async () => {
+  const fonts = detectFonts();
+  fpParts.fonts = fonts.join(",");
+  fpParts.audio = await audioFp();
+  fpParts.ua = navigator.userAgent;
+  fpParts.tz = safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  fpParts.screen = screen.width + "x" + screen.height + "@" + devicePixelRatio;
+  fpParts.cores = navigator.hardwareConcurrency;
+
+  const canvasHash = await sha256hex(fpParts.canvas);
+  fill("rendering", {
+    "hash canvas (SHA-256)": canvasHash,
+    "długość obrazu canvas": fpParts.canvas.length + " bajtów",
+    "producent GPU (WebGL)": glInfo.vendor,
+    "układ GPU (WebGL)": glInfo.renderer + (String(glInfo.renderer).startsWith("Apple") ? "  (Safari maskuje prawdziwy układ)" : ""),
+    "maks. tekstura / rozszerzenia WebGL": glInfo.maxTextureSize + " / " + glInfo.extensions,
+    "WebGL2": glInfo.webgl2,
+    "odcisk audio (suma)": fpParts.audio,
+    ["wykryte czcionki (" + fonts.length + ")"]: fonts.join(", "),
+  });
+
+  const full = await sha256hex(JSON.stringify(fpParts));
+  $id("fingerprint").textContent = full.slice(0, 32) + "…";
+  data["composite.sha256"] = full;
+  window.__fpData = data;
+})();
+
+/* ---------- tabela czcionek ---------- */
+fill("fonts", {
+  "wskazówka": "Szerokość renderowanego tekstu różni się w zależności od zainstalowanych fontów — lista powyżej zdradza rodzinę systemu i dodatkowe fonty (np. CJK)",
+});
+
+/* ---------- urządzenia i głosy ---------- */
+(async () => {
+  let devCount = "brak";
+  try { devCount = (await nav.mediaDevices.enumerateDevices()).length + " urządzeń (typy ukryte do czasu zgody)"; } catch (e) {}
+  let voices = "brak";
+  try { voices = speechSynthesis.getVoices().length + " głosów: " + speechSynthesis.getVoices().slice(0, 6).map(v => v.name).join(", "); } catch (e) {}
+  let conn = "brak";
+  try { const c = nav.connection; conn = c.effectiveType + ", rtt≈" + c.rtt + " ms, pobieranie≈" + c.downlink + " Mb/s"; } catch (e) {}
+  fill("media", {
+    "liczba urządzeń (enumerateDevices)": devCount,
+    "głosy syntezy mowy": voices,
+    "sieć (connection)": conn + (conn === "brak" ? " (Safari: ❌ brak wsparcia)" : ""),
+    "WebRTC może wyliczyć": typeof RTCPeerConnection !== "undefined" ? "tak (ale lokalne IP są maskowane przez mDNS w obu przeglądarkach)" : "nie",
+  });
+})();
+
+/* ---------- mapa lokalizacji ---------- */
+const EARTH_R = 6371; // km
+const haversine = (a, b) => { // a/b = [szerokość, długość]
+  const dLat = (b[0] - a[0]) * Math.PI / 180, dLon = (b[1] - a[1]) * Math.PI / 180;
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+  return 2 * EARTH_R * Math.asin(Math.sqrt(s));
+};
+const ipLoc = { coords: null, label: "brak" };
+function setMap(lat, lon, spanDeg, label) {
+  const f = spanDeg / 2;
+  const bbox = `${lon - f},${lat - f * 0.6},${lon + f},${lat + f * 0.6}`;
+  $id("mapFrame").src = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${lat},${lon}`;
+  $id("mapHint").innerHTML = `Znacznik: <span class="ok">${label}</span>`;
+  $id("mapHint").classList.remove("dim");
+}
+function showGeo(rows) { fill("geo", rows); }
+const ipRows = () => ({
+  "metoda": "geolokalizacja po IP (zapytanie na serwer, po cichu)",
+  "adres IP": ipLoc.ip,
+  "szacunek": ipLoc.label,
+  "współrzędne": ipLoc.coords ? ipLoc.coords[0].toFixed(4) + ", " + ipLoc.coords[1].toFixed(4) : "brak",
+});
+
+$id("ipBtn").onclick = async () => {
+  $id("geoResult").textContent = "sprawdzam…";
+  try {
+    const r = await fetch("https://ipwho.is/");
+    const j = await r.json();
+    if (!j.success) throw new Error(j.message || "wyszukiwanie nie powiodło się");
+    ipLoc.ip = j.ip; ipLoc.coords = [j.latitude, j.longitude];
+    ipLoc.label = [j.city, j.region, j.country].filter(Boolean).join(", ") + `  (dokładność: zwykle dziesiątki km${j.connection?.isp ? " — ISP: " + j.connection.isp : ""})`;
+    showGeo({ ...ipRows(), "strefa czasowa (IP)": j.timezone?.id ?? "brak" });
+    setMap(j.latitude, j.longitude, 0.4, ipLoc.label);
+    $id("geoResult").textContent = "Szacunek z IP pokazany na mapie — poziom miasta, nie Twój budynek.";
+  } catch (e) { $id("geoResult").textContent = "❌ Wyszukiwanie IP nie powiodło się: " + e.message; }
+};
+
+/* ---------- dokładna geolokalizacja (wymaga zgody) ---------- */
+$id("geoBtn").onclick = () => {
+  if (!navigator.geolocation) { $id("geoResult").textContent = "❌ Geolocation API niedostępne"; return; }
+  $id("geoResult").textContent = "pytam o zgodę…";
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      const c = pos.coords;
+      const label = `poprawka GPS/Wi-Fi urządzenia (±${Math.round(c.accuracy)} m) — dokładność wystarcza, by wskazać Twój budynek`;
+      const rows = {
+        "metoda": "navigator.geolocation (zgoda udzielona)",
+        "szerokość": c.latitude.toFixed(6),
+        "długość": c.longitude.toFixed(6),
+        "dokładność": "±" + Math.round(c.accuracy) + " m",
+        "wysokość": c.altitude == null ? "null" : Math.round(c.altitude) + " m",
+        "kierunek / prędkość": (c.heading ?? "null") + " / " + (c.speed == null ? "null" : c.speed + " m/s"),
+      };
+      if (ipLoc.coords) {
+        const km = haversine(ipLoc.coords, [c.latitude, c.longitude]);
+        rows["vs szacunek z IP"] = km < 1 ? "zgodny (< 1 km)" : km.toFixed(1) + " km od szacunku z IP";
+      }
+      showGeo(rows);
+      setMap(c.latitude, c.longitude, Math.max(c.accuracy / 111000, 0.002), label);
+      $id("geoResult").textContent = `szer. ${c.latitude.toFixed(6)}, dł. ${c.longitude.toFixed(6)} (±${Math.round(c.accuracy)} m) — dokładność wystarcza, by wskazać Twój budynek`;
+      data["geo.latitude"] = c.latitude; data["geo.longitude"] = c.longitude;
+    },
+    (err) => { $id("geoResult").textContent = "❌ " + err.message; },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+};
+
+/* ---------- kopiowanie JSON ---------- */
+$id("copyBtn").onclick = () => {
+  const done = () => $id("copyBtn").textContent = "✓ skopiowano";
+  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(JSON.stringify(window.__fpData || data, null, 2)).then(done);
+  else { const t = document.createElement("textarea"); t.value = JSON.stringify(window.__fpData || data, null, 2); document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); done(); }
+};
+</script>
+</body>
+</html>
