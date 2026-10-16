@@ -75,6 +75,9 @@
 <h2>Urządzenia multimedialne i głosy</h2>
 <table id="media"></table>
 
+<br>
+<table id="wow"></table>
+
 <canvas id="cv" width="240" height="60" style="display:none"></canvas>
 
 <script>
@@ -229,6 +232,64 @@ fill("fonts", {
     "sieć (connection)": conn + (conn === "brak" ? " (Safari: ❌ brak wsparcia)" : ""),
     "WebRTC może wyliczyć": typeof RTCPeerConnection !== "undefined" ? "tak (ale lokalne IP są maskowane przez mDNS w obu przeglądarkach)" : "nie",
   });
+})();
+
+(async () => {
+  const rows = {};
+  const [ipRes, adRes, uadRes, devRes] = await Promise.allSettled([
+    new Promise((res) => {
+      if (typeof RTCPeerConnection === "undefined") return res(["❌ brak WebRTC"]);
+      const found = [];
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] });
+      pc.createDataChannel("x");
+      pc.onicecandidate = (e) => {
+        if (!e.candidate) return;
+        const c = e.candidate.candidate;
+        const m = c.match(/ (\d{1,3}(?:\.\d{1,3}){3}|[0-9a-z-]+\.local) /i);
+        if (!m) return;
+        const label = /typ srflx|typ prflx/.test(c) ? "🌐 publiczne IP: " + m[1] : "lokalne (maskowane mDNS): " + m[1];
+        if (!found.includes(label)) found.push(label);
+      };
+      setTimeout(() => { try { pc.close(); } catch (e) {} res(found.length ? found : ["brak kandydatów (STUN zablokowany?)"]); }, 3000);
+    }),
+    new Promise((res) => {
+      const ctl = new AbortController();
+      const t = setTimeout(() => ctl.abort(), 4000);
+      fetch("https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js", { mode: "no-cors", signal: ctl.signal })
+        .then(() => { clearTimeout(t); res(false); })
+        .catch(() => { clearTimeout(t); res(true); });
+    }),
+    (async () => {
+      if (!nav.userAgentData) return null;
+      return await nav.userAgentData.getHighEntropyValues(["model", "platformVersion", "architecture", "bitness", "fullVersionList"]);
+    })(),
+    (async () => {
+      const devs = await nav.mediaDevices.enumerateDevices();
+      const count = (k) => devs.filter(d => d.kind === k).length;
+      return count("videoinput") + " kamera(y), " + count("audioinput") + " mikrofon(y), " + count("audiooutput") + " głośnik(i) — nazwy ukryte, liczby nie";
+    })(),
+  ]);
+
+  const ips = ipRes.status === "fulfilled" ? ipRes.value : ["błąd zbierania"];
+  rows["Twoje publiczne IP — przez WebRTC, BEZ pytania o zgodę"] = ips.join(", ") + "  (VPN często tego nie ukrywa — STUN idzie po UDP)";
+  data["wow.publicIp"] = ips.join(", ");
+
+  if (adRes.status === "fulfilled") rows["masz adblocka?"] = adRes.value ? "🛡️ TAK — przynęta reklamowa została zablokowana" : "nie wykryto";
+  else rows["masz adblocka?"] = "nie można sprawdzić";
+
+  if (uadRes.status === "fulfilled" && uadRes.value) {
+    const h = uadRes.value;
+    rows["wersja systemu + model urządzenia (UA-CH)"] = "system: " + (h.platformVersion ?? "?") + ", CPU: " + (h.architecture ?? "?") + " " + (h.bitness ?? "?") + "-bit" + (h.model ? ", model: " + h.model : "");
+    data["wow.uaModel"] = h.model ?? "";
+    const full = (h.fullVersionList ?? []).map(b => b.brand + " " + b.version).join(", ");
+    if (full) rows["pełna wersja przeglądarki"] = full;
+  } else {
+    rows["wersja systemu + model urządzenia (UA-CH)"] = "❌ brak (Safari)";
+  }
+
+  rows["Twój sprzęt audio-wideo (same liczby, bez zgody)"] = devRes.status === "fulfilled" ? devRes.value : "❌ brak dostępu";
+
+  fill("wow", rows);
 })();
 
 const EARTH_R = 6371;
