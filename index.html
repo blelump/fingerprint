@@ -31,22 +31,19 @@
     margin: 6px 8px 6px 0;
   }
   button:hover { background: #30363d; }
-  #fingerprint { font-size: 15px; color: #f0883e; word-break: break-all; }
+  button#geoBtn:hover { background: #388bfd; }
   #geoResult { color: #3fb950; }
 </style>
 </head>
 <body>
 
 <h1>Co ta strona potrafi odczytać o Tobie — bez pytania o pozwolenie</h1>
-<div class="sub">Wszystko poniżej zostało zebrane zwykłym JavaScriptem w chwili załadowania strony. Działa w Chrome i Safari.</div>
-
-<div><span class="dim">Odcisk palca (fingerprint):</span> <span id="fingerprint">obliczanie…</span></div>
-<button id="copyBtn">⧉ Skopiuj wszystko jako JSON</button>
-<button id="ipBtn">🌐 Zlokalizuj po IP (przybliżenie, bez zgody)</button>
-<button id="geoBtn">📍 Podaj moje dokładne położenie (prosi o zgodę)</button>
-<span id="geoResult"></span>
 
 <h2>Mapa lokalizacji</h2>
+<div style="display:flex; gap:12px; flex-wrap:wrap; align-items:center; margin-bottom:10px;">
+  <button id="geoBtn" style="margin:0; background:#1f6feb; border-color:#388bfd; font-weight:bold;">📍 Podaj moje dokładne położenie (prosi o zgodę) — opcjonalnie</button>
+  <span id="geoResult"></span>
+</div>
 <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:flex-start;">
   <div style="flex:1 1 480px; min-width:300px;">
     <iframe id="mapFrame" title="mapa lokalizacji" style="width:100%; height:360px; border:1px solid #30363d; border-radius:6px; background:#161b22;"></iframe>
@@ -84,7 +81,6 @@
 "use strict";
 const data = {};
 
-/* ---------- pomocnicze ---------- */
 const $id = (t) => document.getElementById(t);
 function fill(tableId, obj) {
   const tb = $id(tableId).createTBody();
@@ -103,7 +99,6 @@ async function sha256hex(str) {
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 
-/* ---------- tożsamość przeglądarki ---------- */
 const nav = navigator;
 fill("identity", {
   "userAgent": nav.userAgent,
@@ -113,14 +108,12 @@ fill("identity", {
   "wtyczki": nav.plugins.length ? [...nav.plugins].map(p => p.name).join(", ") : "0 (puste — typowe)",
 });
 
-/* ---------- sprzęt ---------- */
 fill("hardware", {
   "rdzenie CPU (hardwareConcurrency)": safe(() => nav.hardwareConcurrency),
   "pamięć RAM (deviceMemory)": safe(() => nav.deviceMemory + " GB (tylko Chrome — Safari: ❌ brak)"),
   "bateria": "battery" in nav || "getBattery" in nav ? safe(() => "dostępna (Chrome)") : "❌ brak Battery API (Safari)",
 });
 
-/* ---------- ekran ---------- */
 fill("display", {
   "ekran": screen.width + " × " + screen.height,
   "dostępne (bez pasków)": screen.availWidth + " × " + screen.availHeight,
@@ -128,13 +121,8 @@ fill("display", {
   "devicePixelRatio": window.devicePixelRatio,
   "okno wewnętrzne": innerWidth + " × " + innerHeight,
   "okno zewnętrzne": safe(() => outerWidth + " × " + outerHeight),
-  "pozycja ekranu": safe(() => (screen.availLeft ?? "brak") + "," + (screen.availTop ?? "brak"), "brak"),
-  "orientacja": safe(() => (screen.orientation?.type ?? "brak"), "brak"),
-  "paleta kolorów": safe(() => matchMedia("(color-gamut: p3)").matches ? "P3 (szeroka)" : matchMedia("(color-gamut: srgb)").matches ? "sRGB" : "nieznana"),
-  "zakres dynamiki": safe(() => matchMedia("(dynamic-range: high)").matches ? "HDR" : "SDR"),
 });
 
-/* ---------- język i czas ---------- */
 fill("locale", {
   "strefa czasowa (precyzyjny region!)": safe(() => Intl.DateTimeFormat().resolvedOptions().timeZone),
   "przesunięcie strefy": "UTC-" + (-new Date().getTimezoneOffset() / 60),
@@ -142,10 +130,8 @@ fill("locale", {
   "format daty": safe(() => new Intl.DateTimeFormat().format(new Date())),
 });
 
-/* ---------- odcisk renderowania ---------- */
 const fpParts = {};
 
-// canvas
 const cv = $id("cv"), ctx = cv.getContext("2d");
 ctx.textBaseline = "alphabetic";
 ctx.fillStyle = "#f60"; ctx.fillRect(122, 1, 62, 20);
@@ -156,7 +142,6 @@ ctx.fillText("Fingerprint 🕷 0.9", 4, 32);
 ctx.shadowBlur = 4; ctx.shadowColor = "#f00"; ctx.strokeRect(0, 0, 50, 50);
 fpParts.canvas = cv.toDataURL();
 
-// webgl
 let glInfo = "niedostępny";
 {
   const gl = document.createElement("canvas").getContext("webgl") || document.createElement("canvas").getContext("experimental-webgl");
@@ -170,7 +155,6 @@ let glInfo = "niedostępny";
   }
 }
 
-// audio
 async function audioFp() {
   try {
     const octx = new OfflineAudioContext(1, 4410, 44100);
@@ -183,7 +167,6 @@ async function audioFp() {
   } catch (e) { return "niedostępny"; }
 }
 
-// czcionki
 function detectFonts() {
   const base = ["monospace", "sans-serif", "serif"];
   const test = "mmmmmmmmmmlli Ww@#0123";
@@ -196,7 +179,6 @@ function detectFonts() {
   const found = [];
   const candidates = ["Arial","Helvetica","Verdana","Tahoma","Trebuchet MS","Times New Roman","Georgia","Garamond","Courier New","Comic Sans MS","Impact","Segoe UI","Calibri","Consolas","Cambria","Candara","Microsoft YaHei","SimSun","SF Pro","Helvetica Neue","Menlo","Monaco","Optima","Palatino","Zapfino","Avenir","Futura","Roboto","Ubuntu","DejaVu Sans","Liberation Sans","FreeSans","Noto Sans","Droid Sans"];
   for (const f of candidates) {
-    // font jest "zainstalowany", jeśli tekst renderuje się szerszy w dowolnym foncie podstawowym
     const hit = base.some(b => { span.style.fontFamily = `'${f}',${b}`; return span.offsetWidth !== w[b]; });
     if (hit) found.push(f);
   }
@@ -204,7 +186,6 @@ function detectFonts() {
   return found;
 }
 
-/* ---------- wypełnienie sekcji renderowania po częściach asynchronicznych ---------- */
 (async () => {
   const fonts = detectFonts();
   fpParts.fonts = fonts.join(",");
@@ -227,17 +208,14 @@ function detectFonts() {
   });
 
   const full = await sha256hex(JSON.stringify(fpParts));
-  $id("fingerprint").textContent = full.slice(0, 32) + "…";
   data["composite.sha256"] = full;
   window.__fpData = data;
 })();
 
-/* ---------- tabela czcionek ---------- */
 fill("fonts", {
   "wskazówka": "Szerokość renderowanego tekstu różni się w zależności od zainstalowanych fontów — lista powyżej zdradza rodzinę systemu i dodatkowe fonty (np. CJK)",
 });
 
-/* ---------- urządzenia i głosy ---------- */
 (async () => {
   let devCount = "brak";
   try { devCount = (await nav.mediaDevices.enumerateDevices()).length + " urządzeń (typy ukryte do czasu zgody)"; } catch (e) {}
@@ -253,9 +231,8 @@ fill("fonts", {
   });
 })();
 
-/* ---------- mapa lokalizacji ---------- */
-const EARTH_R = 6371; // km
-const haversine = (a, b) => { // a/b = [szerokość, długość]
+const EARTH_R = 6371;
+const haversine = (a, b) => {
   const dLat = (b[0] - a[0]) * Math.PI / 180, dLon = (b[1] - a[1]) * Math.PI / 180;
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(a[0] * Math.PI / 180) * Math.cos(b[0] * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
   return 2 * EARTH_R * Math.asin(Math.sqrt(s));
@@ -276,7 +253,7 @@ const ipRows = () => ({
   "współrzędne": ipLoc.coords ? ipLoc.coords[0].toFixed(4) + ", " + ipLoc.coords[1].toFixed(4) : "brak",
 });
 
-$id("ipBtn").onclick = async () => {
+async function locateByIp() {
   $id("geoResult").textContent = "sprawdzam…";
   try {
     const r = await fetch("https://ipwho.is/");
@@ -286,11 +263,11 @@ $id("ipBtn").onclick = async () => {
     ipLoc.label = [j.city, j.region, j.country].filter(Boolean).join(", ") + `  (dokładność: zwykle dziesiątki km${j.connection?.isp ? " — ISP: " + j.connection.isp : ""})`;
     showGeo({ ...ipRows(), "strefa czasowa (IP)": j.timezone?.id ?? "brak" });
     setMap(j.latitude, j.longitude, 0.4, ipLoc.label);
-    $id("geoResult").textContent = "Szacunek z IP pokazany na mapie — poziom miasta, nie Twój budynek.";
+    $id("geoResult").textContent = "Obecna lokalizacja jest w przybliżeniu, na podstawie adresu IP.";
   } catch (e) { $id("geoResult").textContent = "❌ Wyszukiwanie IP nie powiodło się: " + e.message; }
-};
+}
+locateByIp();
 
-/* ---------- dokładna geolokalizacja (wymaga zgody) ---------- */
 $id("geoBtn").onclick = () => {
   if (!navigator.geolocation) { $id("geoResult").textContent = "❌ Geolocation API niedostępne"; return; }
   $id("geoResult").textContent = "pytam o zgodę…";
@@ -320,12 +297,6 @@ $id("geoBtn").onclick = () => {
   );
 };
 
-/* ---------- kopiowanie JSON ---------- */
-$id("copyBtn").onclick = () => {
-  const done = () => $id("copyBtn").textContent = "✓ skopiowano";
-  if (navigator.clipboard?.writeText) navigator.clipboard.writeText(JSON.stringify(window.__fpData || data, null, 2)).then(done);
-  else { const t = document.createElement("textarea"); t.value = JSON.stringify(window.__fpData || data, null, 2); document.body.appendChild(t); t.select(); document.execCommand("copy"); t.remove(); done(); }
-};
 </script>
 </body>
 </html>
